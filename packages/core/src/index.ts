@@ -68,12 +68,11 @@ export class Virtualizer<TItemElement extends Element> {
   private _listHeightWithHeadRoom = 0;
   private _heights: Map<string, number> = new Map();
   private _pendingHeightUpdates: Map<string, number> = new Map();
-  // private _cells: Map<any, any> = new Map()
+  private _cells: Map<TItemElement, string> = new Map();
   private _slice: Slice = { start: 0, end: 0 };
   private _isIdle = false;
   private _isInitialAnchoring = true;
   private _devicePixelRatio = window.devicePixelRatio || 1;
-  private _observedNodeToIdMap: Map<TItemElement, string> = new Map();
   private _lastUpdateReason:
     | (typeof UpdateReason)[keyof typeof UpdateReason]
     | undefined;
@@ -142,7 +141,7 @@ export class Virtualizer<TItemElement extends Element> {
   }
 
   mount() {
-    this._viewport = this._options.viewport ?? this._createViewport();
+    this._viewport = this._options.viewport ?? new Viewport(window)
 
     const _removeScrollHandler = this._viewport.addScrollListener(
       this._handleScroll.bind(this),
@@ -159,17 +158,61 @@ export class Virtualizer<TItemElement extends Element> {
     };
   }
 
-  measureElement(node: TItemElement, itemId: string) {
+  /**
+   * Registers a DOM element to be tracked and measured by the virtualizer.
+   *
+   * This method associates a specific DOM element (`node`) with a unique data item ID (`itemId`).
+   * It triggers an initial measurement of the element's size and sets up a ResizeObserver
+   * to monitor the element for future size changes.
+   *
+   * IMPORTANT: The returned function *must* be called when the element is removed
+   * from the DOM or no longer needs to be tracked, to ensure proper cleanup
+   * and prevent memory leaks.
+   *
+   * Example Usage:
+   * ```typescript
+   * const elementRef = useRef<HTMLDivElement>(null);
+   * const itemId = 'item-123';
+   *
+   * useEffect(() => {
+   *   const node = elementRef.current;
+   *   if (node && virtualizer) {
+   *     const cleanup = virtualizer.measureElement(node, itemId);
+   *     // Return the cleanup function to be called on component unmount
+   *     return cleanup;
+   *   }
+   * }, [virtualizer, itemId]);
+   * ```
+   *
+   * @param node The DOM element instance to measure and observe.
+   * @param itemId The unique identifier of the data item corresponding to this element.
+   * @returns A cleanup function `() => void` that unregisters and stops observing the element,
+   * or `undefined` if the provided `node` is invalid.
+   */
+  measureElement(node: TItemElement, itemId: string): (() => void) | undefined {
     if (!node) {
-      return;
+      console.error('Virtualizer: measureElement called with invalid node.', { itemId });
+      return undefined;
     }
 
-    this._observedNodeToIdMap.set(node, itemId);
+    // Optional: Add warning for re-registration if desired
+    // if (this._cells.has(node)) {
+    //   console.warn(`Virtualizer: Re-registering element. Ensure cleanup was called for previous registration.`, { node, itemId });
+    // }
+
+    this._cells.set(node, itemId);
+    // Trigger the internal measurement/observation logic.
+    // The `undefined` entry signals ResizeObserver needs to measure it.
     this._measureElement(node, undefined);
 
     return () => {
-      this._observedNodeToIdMap.delete(node);
-      this.observer.unObserver(node);
+      // Check if the node still exists in the map before deleting/unobserving
+      // This prevents errors if cleanup is called multiple times.
+      if (this._cells.has(node)) {
+        this._cells.delete(node);
+        // It's generally safe to call unobserve even if not observed, but check is cleaner.
+        this.observer.unObserver(node);
+      }
     };
   }
 
@@ -205,10 +248,6 @@ export class Virtualizer<TItemElement extends Element> {
     this._list = opts.list;
   }
 
-  private _createViewport() {
-    return new Viewport(window);
-  }
-
   private _handleHeightChanged(itemId: string, height: number) {
     if (this._heights.get(itemId) !== height) {
       this._updateItemHeight(itemId, height);
@@ -235,14 +274,37 @@ export class Virtualizer<TItemElement extends Element> {
     node: TItemElement,
     entry: ResizeObserverEntry | undefined,
   ) {
-    if (typeof entry === 'undefined') {
+    const itemId = this._cells.get(node);
+
+    if (itemId === undefined) {
+      // Consider adding a warning log here if this scenario is unexpected
+      // console.warn('Measured element without a corresponding itemId:', node);
+      return;
+    }
+
+    if (entry === undefined) {
       this.observer.observer(node);
-    } else {
-      const { height } = entry.contentRect;
-      const itemId = this._observedNodeToIdMap.get(node);
-      if (itemId) {
-        this._handleHeightChanged(itemId, height);
-      }
+      return;
+    }
+
+    const newHeightRaw = entry.contentRect?.height;
+
+    if (typeof newHeightRaw !== 'number' || newHeightRaw < 0) {
+      // Consider adding a warning for invalid measured height
+      // console.warn(`Invalid height measured (${newHeightRaw}) for item: ${itemId}`);
+      return;
+    }
+    const newHeight = Math.floor(newHeightRaw);
+
+    const heightValue = this._heights.get(itemId);
+    const oldHeight = heightValue !== undefined
+        ? Math.floor(heightValue)
+        : null;
+
+    const heightDidChange = newHeight !== oldHeight;
+
+    if (heightDidChange) {
+      this._handleHeightChanged(itemId, newHeight);
     }
   }
 
@@ -270,7 +332,7 @@ export class Virtualizer<TItemElement extends Element> {
 
     const anchor = this._getAnchor();
 
-    // this._measureHeights()
+    this._measureHeights()
 
     if (anchor) {
       this._updateRenderedItems(anchor, relativeViewportRect);
@@ -322,14 +384,33 @@ export class Virtualizer<TItemElement extends Element> {
     return this._finalRenderedItems();
   }
 
-  // private _measureHeights() {
-  //   this._cells.forEach((cellApi, itemId) => {
-  //     const measuredHeight = cellApi.measureHeight()
-  //     if (measuredHeight >= 0 && this._heights.get(itemId) !== measuredHeight) {
-  //       this._heights.set(itemId, measuredHeight)
-  //     }
-  //   })
-  // }
+  private _measureHeights() {
+    for (const [node, itemId] of this._cells.entries()) {
+      if (!node) {
+        // Optional: Log warning if an itemId exists without a corresponding node
+        // console.warn(`No node found for itemId: ${itemId} during measurement.`);
+        continue;
+      }
+
+      const measuredHeightRaw = node.getBoundingClientRect().height;
+
+      if (typeof measuredHeightRaw !== 'number' || measuredHeightRaw < 0) {
+        // Optional: Log warning about invalid height measurement
+        // console.warn(`Invalid height measured (${measuredHeightRaw}) for item ${itemId}`);
+        continue;
+      }
+
+      const measuredHeight = measuredHeightRaw;
+
+      const currentHeight = this._heights.get(itemId);
+
+      if (measuredHeight !== currentHeight) {
+        this._heights.set(itemId, measuredHeight);
+        // Note: Consider if an update cycle needs to be triggered here,
+        // although height changes are often handled by the ResizeObserver callback (_measureElement).
+      }
+    }
+  }
 
   private _updateRenderedItems(anchor, relativeViewportRect: Rectangle) {
     const { onChange } = this._options;
@@ -401,9 +482,11 @@ export class Virtualizer<TItemElement extends Element> {
     const allItemsWithPositions = this._getItemsWithPositions(anchor);
 
     // 2. Filter items that intersect the target buffered viewport
-    const candidateItems = allItemsWithPositions.filter((itemState) => {
-      return itemState.getRectInViewport().doesIntersectWith(targetBufferRect);
-    });
+    const candidateItems = allItemsWithPositions.filter(
+      (itemState) => {
+        return itemState.getRectInViewport().doesIntersectWith(targetBufferRect);
+      },
+    );
 
     // 3. Determine the start/end indices of these candidates within the full list
     const candidateSlice = this._getSliceForCandidates(

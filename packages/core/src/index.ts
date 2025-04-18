@@ -1,4 +1,5 @@
-import throttle from 'lodash/throttle';
+import { default as throttle } from 'lodash.throttle'
+import { default as debounce } from 'lodash.debounce'
 import { Rectangle } from './geo/Rectangle';
 import { Viewport } from './geo/Viewport';
 import { filterMap, first, last } from './utils/array';
@@ -31,6 +32,7 @@ export interface VirtualizerOptions {
   preferredOffscreenToViewportRatio: number;
   //
   onChange?: () => void;
+  onScrollEnd?: () => void;
 }
 
 class RenderedItem {
@@ -70,12 +72,13 @@ export class Virtualizer<TItemElement extends Element> {
   private _pendingHeightUpdates: Map<string, number> = new Map();
   private _cells: Map<TItemElement, string> = new Map();
   private _slice: Slice = { start: 0, end: 0 };
-  private _isIdle = false;
+  private _isIdle = true;
   private _isInitialAnchoring = true;
   private _devicePixelRatio = window.devicePixelRatio || 1;
   private _lastUpdateReason:
     | (typeof UpdateReason)[keyof typeof UpdateReason]
     | undefined;
+  private _previousScrollPosition: number | undefined;
 
   private _itemMap = memo(
     () => [this._list] as const,
@@ -309,7 +312,9 @@ export class Virtualizer<TItemElement extends Element> {
   }
 
   private _handleScroll() {
-    if (!this._viewport) return;
+    if (!this._viewport) {
+      return;
+    }
 
     const currentScrollY = this._viewport.scrollY();
 
@@ -317,18 +322,31 @@ export class Virtualizer<TItemElement extends Element> {
       return;
     }
     this._isIdle = false;
+    this._updateScrollEnd();
     this._scheduleCriticalUpdateThrottled();
   }
+
+  private _updateScrollEnd = debounce(() => {
+    const { onScrollEnd } = this._options;
+    this._previousScrollPosition = this._viewport?.scrollY() ?? 0;
+    this._isIdle = true;
+    onScrollEnd?.();
+    this._scheduleCriticalUpdate();
+  }, 200);
 
   private _getInitialRenderedItems() {
     return [];
   }
 
   private _update() {
-    if (!this._viewport) return;
+    if (!this._viewport) {
+      return;
+    }
 
     const relativeViewportRect = this._measureRelativeViewportRect();
-    if (!relativeViewportRect) return;
+    if (!relativeViewportRect) {
+      return;
+    }
 
     const anchor = this._getAnchor();
 
@@ -448,6 +466,7 @@ export class Virtualizer<TItemElement extends Element> {
     }
 
     this._lastUpdateReason = undefined;
+    // this._isIdle = true;
   }
 
   private _shouldTriggerOnChange(sliceChanged: boolean): boolean {

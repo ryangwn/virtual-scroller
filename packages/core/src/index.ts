@@ -150,6 +150,10 @@ export class Virtualizer<TItemElement extends Element> {
       this._handleScroll.bind(this),
     );
 
+    const _removeViewportResizeHandler = this._viewport.addRectChangeListener(
+      this._scheduleCriticalUpdateThrottled.bind(this),
+    );
+
     const initialRenderedItems = this._getInitialRenderedItems();
     if (initialRenderedItems.length > 0) {
     } else {
@@ -158,6 +162,7 @@ export class Virtualizer<TItemElement extends Element> {
 
     return () => {
       _removeScrollHandler();
+      _removeViewportResizeHandler();
     };
   }
 

@@ -8,7 +8,7 @@
 | ---- | ------- | ------ |
 | Core | Core Virtualize with heights calculate | Done |
 | Core | Implement Cell Animation | Todo |
-| Core | Implement viewport resize | Todo |
+| Core | Implement viewport resize | Done |
 | Core | Implement edge Proximity handler (nearTop, nearTopRatio, nearBottomRatio, nearBottom) | Todo |
 | Accessibility | Keyboard handlers | Todo |
 | Core | Implement initialAnchor prop for controlling the initial scroll position | Todo |

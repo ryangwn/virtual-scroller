@@ -1,5 +1,5 @@
-import { default as throttle } from 'lodash.throttle'
-import { default as debounce } from 'lodash.debounce'
+import { default as throttle } from 'lodash.throttle';
+import { default as debounce } from 'lodash.debounce';
 import { Rectangle } from './geo/Rectangle';
 import { Viewport } from './geo/Viewport';
 import { filterMap, first, last } from './utils/array';
@@ -7,6 +7,10 @@ import { isNumber } from './utils/number';
 import { roundToDevicePixelRatio } from './utils/ratio';
 import { memo } from './utils/memo';
 import { deepCompare } from './utils/object';
+import { Positioning } from './geo/Positioning';
+import { Anchor } from './geo/Anchor';
+import type { ZoneCallbackParam } from './geo/Proximity';
+import { condition, EdgeProximity } from './geo/Proximity';
 
 const UpdateReason = {
   HEIGHT_CHANGE: 'changeHeight',
@@ -30,35 +34,16 @@ export interface VirtualizerOptions {
   useAnimationFrameWithResizeObserver?: boolean;
   minimumOffscreenToViewportRatio: number;
   preferredOffscreenToViewportRatio: number;
+  nearStartProximityRatio?: number;
+  nearEndProximityRatio?: number;
   //
   onChange?: () => void;
   onScrollEnd?: () => void;
-}
-
-class RenderedItem {
-  itemId: string;
-  offset: number;
-  visible: boolean;
-  canBeAnchor: boolean;
-  height: number;
-
-  constructor(
-    itemId: string,
-    offset: number,
-    visible: boolean,
-    canBeAnchor: boolean,
-    height: number,
-  ) {
-    this.itemId = itemId;
-    this.offset = offset;
-    this.visible = visible;
-    this.canBeAnchor = canBeAnchor;
-    this.height = height;
-  }
-
-  getRectInViewport() {
-    return new Rectangle(this.offset, this.height);
-  }
+  onPositionUpdate?: (positioning: Positioning) => void;
+  onAtStart?: (data: ZoneCallbackParam) => void;
+  onNearStart?: (data: ZoneCallbackParam) => void;
+  onNearEnd?: (data: ZoneCallbackParam) => void;
+  onAtEnd?: (data: ZoneCallbackParam) => void;
 }
 
 export class Virtualizer<TItemElement extends Element> {
@@ -66,7 +51,7 @@ export class Virtualizer<TItemElement extends Element> {
   private _viewport: Viewport | undefined;
   private _rootElement: Element | undefined;
   private _list: Array<ListItem> = [];
-  private _renderedItems: RenderedItem[] = [];
+  private _renderedItems: Anchor[] = [];
   private _listHeightWithHeadRoom = 0;
   private _heights: Map<string, number> = new Map();
   private _pendingHeightUpdates: Map<string, number> = new Map();
@@ -79,6 +64,7 @@ export class Virtualizer<TItemElement extends Element> {
     | (typeof UpdateReason)[keyof typeof UpdateReason]
     | undefined;
   private _previousScrollPosition: number | undefined;
+  private _edgeProximity: EdgeProximity | undefined;
 
   private _itemMap = memo(
     () => [this._list] as const,
@@ -92,9 +78,9 @@ export class Virtualizer<TItemElement extends Element> {
 
   private _finalRenderedItems = memo(
     () => [this._list, this._renderedItems] as const,
-    (_list: Array<ListItem>, renderedItemStates: RenderedItem[]) => {
+    (_list: Array<ListItem>, renderedItemStates: Anchor[]) => {
       const itemMap = this._itemMap(); // Use the memoized item map
-      return filterMap(renderedItemStates, (state: RenderedItem) => {
+      return filterMap(renderedItemStates, (state: Anchor) => {
         const item = itemMap.get(state.itemId);
         return item
           ? { item, offset: state.offset, visible: state.visible }
@@ -144,7 +130,7 @@ export class Virtualizer<TItemElement extends Element> {
   }
 
   mount() {
-    this._viewport = this._options.viewport ?? new Viewport(window)
+    this._viewport = this._options.viewport ?? new Viewport(window);
 
     const _removeScrollHandler = this._viewport.addScrollListener(
       this._handleScroll.bind(this),
@@ -153,6 +139,29 @@ export class Virtualizer<TItemElement extends Element> {
     const _removeViewportResizeHandler = this._viewport.addRectChangeListener(
       this._scheduleCriticalUpdateThrottled.bind(this),
     );
+
+    this._edgeProximity = new EdgeProximity([
+      {
+        condition: condition.nearTop(5),
+        callback: (data) => this._options.onAtStart?.(data),
+      },
+      {
+        condition: condition.nearTopRatio(
+          this._options.nearStartProximityRatio ?? 0.25,
+        ),
+        callback: (data) => this._options.onNearStart?.(data),
+      },
+      {
+        condition: condition.nearBottomRatio(
+          this._options.nearEndProximityRatio ?? 1.75,
+        ),
+        callback: (data) => this._options.onNearEnd?.(data),
+      },
+      {
+        condition: condition.nearBottom(5),
+        callback: (data) => this._options.onAtEnd?.(data),
+      },
+    ]);
 
     const initialRenderedItems = this._getInitialRenderedItems();
     if (initialRenderedItems.length > 0) {
@@ -199,7 +208,9 @@ export class Virtualizer<TItemElement extends Element> {
    */
   measureElement(node: TItemElement, itemId: string): (() => void) | undefined {
     if (!node) {
-      console.error('Virtualizer: measureElement called with invalid node.', { itemId });
+      console.error('Virtualizer: measureElement called with invalid node.', {
+        itemId,
+      });
       return undefined;
     }
 
@@ -249,6 +260,8 @@ export class Virtualizer<TItemElement extends Element> {
     this._options = {
       debug: false,
       useAnimationFrameWithResizeObserver: true,
+      nearStartProximityRatio: 0.25,
+      nearEndProximityRatio: 1.75,
       ...opts,
     };
 
@@ -305,9 +318,8 @@ export class Virtualizer<TItemElement extends Element> {
     const newHeight = Math.floor(newHeightRaw);
 
     const heightValue = this._heights.get(itemId);
-    const oldHeight = heightValue !== undefined
-        ? Math.floor(heightValue)
-        : null;
+    const oldHeight =
+      heightValue !== undefined ? Math.floor(heightValue) : null;
 
     const heightDidChange = newHeight !== oldHeight;
 
@@ -355,7 +367,7 @@ export class Virtualizer<TItemElement extends Element> {
 
     const anchor = this._getAnchor();
 
-    this._measureHeights()
+    this._measureHeights();
 
     if (anchor) {
       this._updateRenderedItems(anchor, relativeViewportRect);
@@ -371,7 +383,7 @@ export class Virtualizer<TItemElement extends Element> {
     return undefined;
   }
 
-  private _getAnchor() {
+  private _getAnchor(): Anchor | undefined {
     // TODO
     // Rule 1: Pin to newest if configured and at the edge (unless centering initial anchor)
 
@@ -381,13 +393,13 @@ export class Virtualizer<TItemElement extends Element> {
     // Rule 3: Fallback - If no visible anchor, use the first *rendered* anchor candidate
     const firstCandidate = first(candidates);
     if (firstCandidate) {
-      return { itemId: firstCandidate.item.id, offset: firstCandidate.offset };
+      return new Anchor(firstCandidate.item.id, firstCandidate.offset);
     }
 
     // Rule 4: Ultimate Fallback - Use the first item in the *full* list
     const firstOverall = first(this._list);
     if (firstOverall) {
-      return { itemId: firstOverall.id, offset: 0 };
+      return new Anchor(firstOverall.id, 0);
     }
 
     return undefined;
@@ -435,7 +447,10 @@ export class Virtualizer<TItemElement extends Element> {
     }
   }
 
-  private _updateRenderedItems(anchor, relativeViewportRect: Rectangle) {
+  private _updateRenderedItems(
+    anchor: Anchor,
+    relativeViewportRect: Rectangle,
+  ) {
     const { onChange } = this._options;
     const {
       allItemsWithPositions,
@@ -471,7 +486,12 @@ export class Virtualizer<TItemElement extends Element> {
     }
 
     this._lastUpdateReason = undefined;
-    // this._isIdle = true;
+    this._updatePositioning({
+      renderedItems: newRenderedItems,
+      relativeViewportRect,
+      firstItem: firstItemOverall,
+      newListHeight: listHeightWithHeadroom,
+    });
   }
 
   private _shouldTriggerOnChange(sliceChanged: boolean): boolean {
@@ -480,7 +500,10 @@ export class Virtualizer<TItemElement extends Element> {
     );
   }
 
-  private _getRenderCandidates(anchor, relativeViewportRect: Rectangle) {
+  private _getRenderCandidates(
+    anchor: Anchor,
+    relativeViewportRect: Rectangle,
+  ) {
     const {
       minimumOffscreenToViewportRatio,
       preferredOffscreenToViewportRatio,
@@ -506,11 +529,9 @@ export class Virtualizer<TItemElement extends Element> {
     const allItemsWithPositions = this._getItemsWithPositions(anchor);
 
     // 2. Filter items that intersect the target buffered viewport
-    const candidateItems = allItemsWithPositions.filter(
-      (itemState) => {
-        return itemState.getRectInViewport().doesIntersectWith(targetBufferRect);
-      },
-    );
+    const candidateItems = allItemsWithPositions.filter((itemState) => {
+      return itemState.getRectInViewport().doesIntersectWith(targetBufferRect);
+    });
 
     // 3. Determine the start/end indices of these candidates within the full list
     const candidateSlice = this._getSliceForCandidates(
@@ -558,18 +579,18 @@ export class Virtualizer<TItemElement extends Element> {
     }, 0);
   }
 
-  private _getItemsWithPositions(anchor) {
+  private _getItemsWithPositions(anchor: Anchor) {
     if (!this._list || this._list.length === 0) return [];
 
     const anchorDistanceTop = this._getDistanceFromTop(anchor.itemId);
 
     let currentOffset = anchor.offset - anchorDistanceTop;
 
-    const allItemsPositions: RenderedItem[] = [];
+    const allItemsPositions: Anchor[] = [];
     this._list.forEach((item) => {
       const height = this._getHeight(item);
       allItemsPositions.push(
-        new RenderedItem(
+        new Anchor(
           item.id,
           currentOffset,
           this._heights.has(item.id),
@@ -584,8 +605,8 @@ export class Virtualizer<TItemElement extends Element> {
   }
 
   private _getSliceForCandidates(
-    candidates: RenderedItem[],
-    allItems: RenderedItem[],
+    candidates: Anchor[],
+    allItems: Anchor[],
   ) {
     const firstCandidate = first(candidates);
     const lastCandidate = last(candidates);
@@ -651,14 +672,14 @@ export class Virtualizer<TItemElement extends Element> {
     };
   }
 
-  private _getIsHeightsReady(renderedItems: RenderedItem[]) {
+  private _getIsHeightsReady(renderedItems: Anchor[]) {
     if (!renderedItems || renderedItems.length === 0) return true;
     return renderedItems.every(({ itemId }) => this._heights.has(itemId));
   }
 
   private _getHeightBetweenItems(
-    firstItemState: RenderedItem | undefined,
-    lastItemState: RenderedItem | undefined,
+    firstItemState: Anchor | undefined,
+    lastItemState: Anchor | undefined,
   ) {
     if (!firstItemState || !lastItemState) return 0;
     const firstRect = this._getRenderedItemRectInViewport(firstItemState);
@@ -666,9 +687,45 @@ export class Virtualizer<TItemElement extends Element> {
     return lastRect.getBottom() - firstRect.getTop();
   }
 
-  private _getRenderedItemRectInViewport(itemState: RenderedItem) {
+  private _getRenderedItemRectInViewport(itemState: Anchor) {
     // The offset in RenderedItem is already viewport-relative (after potential normalization)
     return itemState.getRectInViewport();
+  }
+
+  private _updatePositioning({
+    renderedItems,
+    relativeViewportRect,
+    firstItem,
+    newListHeight,
+  }: {
+    renderedItems: Anchor[];
+    relativeViewportRect: Rectangle;
+    firstItem?: Anchor;
+    newListHeight: number;
+  }) {
+    const { onPositionUpdate } = this._options;
+    if (!this._getIsHeightsReady(renderedItems)) {
+      return;
+    }
+
+    const positioning = new Positioning({
+      viewportRect: relativeViewportRect,
+      listRect: new Rectangle(
+        firstItem ? this._getRenderedItemRectInViewport(firstItem).getTop() : 0,
+        newListHeight,
+      ),
+      listLength: this._list.length,
+      renderedItems: renderedItems.map((item) => ({
+        id: item.itemId,
+        rectangle: new Rectangle(
+          item.offset,
+          this._getHeightForItemId(item.itemId),
+        ),
+      })),
+    });
+
+    onPositionUpdate?.(positioning);
+    this._edgeProximity?.handlePositioningUpdate(positioning);
   }
 
   private _scheduleCriticalUpdate = () =>

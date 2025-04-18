@@ -1,90 +1,100 @@
+import type { Positioning } from './Positioning';
 import type { Rectangle } from './Rectangle';
 
-export const ProximityTriggerCause = {
-  MOVEMENT: 'movement',
-  LIST_UPDATE: 'list_update',
-  INITIAL_POSITION: 'initial_position',
+export type TriggerCause =
+  | 'INITIAL_POSITION'
+  | 'MOVEMENT'
+  | 'LIST_UPDATE'
+  | null;
+
+export type ZoneCallbackParam = {
+  triggerCause: TriggerCause;
+};
+export type ZoneCallback = (param: ZoneCallbackParam) => void;
+
+type ProximityState = 'INSIDE' | 'OUTSIDE' | undefined;
+
+type Zone = {
+  condition: (listRect: Rectangle, viewportRect: Rectangle) => boolean;
+  callback: ZoneCallback;
 };
 
-export const ProximityState = {
-  INSIDE: 'inside',
-  OUTSIDE: 'outside',
+type State = {
+  proximity: ProximityState;
+  listLength: number;
 };
 
-export const isNearTop =
-  (threshold: number) => (listRect: Rectangle, viewportRect: Rectangle) =>
-    viewportRect.getTop() - listRect.getTop() <= threshold;
-export const isNearBottom =
-  (threshold: number) => (listRect: Rectangle, viewportRect: Rectangle) =>
-    listRect.getBottom() - viewportRect.getBottom() <= threshold;
-export const isNearTopRatio =
-  (ratio: number) => (listRect: Rectangle, viewportRect: Rectangle) => {
-    const threshold = viewportRect.getHeight() * ratio;
-    return viewportRect.getTop() - listRect.getTop() <= threshold;
-  };
-export const isNearBottomRatio =
-  (ratio: number) => (listRect: Rectangle, viewportRect: Rectangle) => {
-    const threshold = viewportRect.getHeight() * ratio;
-    return listRect.getBottom() - viewportRect.getBottom() <= threshold;
-  };
-
-export const calculateProximityTrigger = (
-  prevProximity,
-  prevListLength,
-  currentProximity,
-  currentListLength,
-) => {
-  const wasOutside_nowInside =
-    !prevProximity && currentProximity === ProximityState.INSIDE;
-  const wasOutside_becameInside =
-    prevProximity === ProximityState.OUTSIDE &&
-    currentProximity === ProximityState.INSIDE;
-  const stayedInside_listChanged =
-    prevProximity === ProximityState.INSIDE &&
-    currentProximity === ProximityState.INSIDE &&
-    currentListLength !== prevListLength;
-
-  if (wasOutside_nowInside) return ProximityTriggerCause.INITIAL_POSITION;
-  if (wasOutside_becameInside) return ProximityTriggerCause.MOVEMENT;
-  if (stayedInside_listChanged) return ProximityTriggerCause.LIST_UPDATE;
-  return null;
+type Handler = {
+  zone: Zone;
+  state: State;
 };
 
-export class ProximityZoneManager {
-  constructor(zoneDefinitions) {
-    this._zones = zoneDefinitions.map((zone) => ({
+export const condition = {
+  nearTop:
+    (threshold: number) => (listRect: Rectangle, viewportRect: Rectangle) =>
+      viewportRect.getTop() - listRect.getTop() <= threshold,
+  nearBottom:
+    (threshold: number) => (listRect: Rectangle, viewportRect: Rectangle) =>
+      listRect.getBottom() - viewportRect.getBottom() <= threshold,
+  nearTopRatio:
+    (ratio: number) => (listRect: Rectangle, viewportRect: Rectangle) => {
+      const viewportHeight = viewportRect.getHeight();
+      const threshold = viewportHeight * ratio;
+      return viewportRect.getTop() - listRect.getTop() <= threshold;
+    },
+  nearBottomRatio:
+    (ratio: number) => (listRect: Rectangle, viewportRect: Rectangle) => {
+      const viewportHeight = viewportRect.getHeight();
+      const threshold = viewportHeight * ratio;
+      return listRect.getBottom() - viewportRect.getBottom() <= threshold;
+    },
+};
+
+export class EdgeProximity {
+  handlers: Handler[];
+
+  constructor(zones: Zone[]) {
+    this.handlers = zones.map((zone) => ({
       zone,
-      state: {}, // Stores { proximity, listLength } for each zone
+      state: {
+        proximity: undefined,
+        listLength: 0,
+      },
     }));
   }
 
-  handlePositioningUpdate(positioningData) {
-    this._zones.forEach(({ state, zone }) => {
-      const { callback, condition } = zone;
-      const { listLength: prevListLength, proximity: prevProximity } = state;
+  handlePositioningUpdate(positioning: Positioning) {
+    this.handlers.forEach(({ zone, state }) => {
+      const { callback } = zone;
+      const { proximity, listLength } = state;
 
-      const currentProximity = condition(
-        positioningData.getForList(),
-        positioningData.getForViewport(),
-      )
-        ? ProximityState.INSIDE
-        : ProximityState.OUTSIDE;
-      const currentListLength = positioningData.getListLength();
+      const newProximity = zone.condition(
+        positioning.getForList(),
+        positioning.getForViewport(),
+      ) ? 'INSIDE' : 'OUTSIDE';
 
-      const triggerCause = calculateProximityTrigger(
-        prevProximity,
-        prevListLength,
-        currentProximity,
-        currentListLength,
-      );
+      const newLength = positioning.getListLength();
+      let triggerCause: TriggerCause = null;
 
-      // Update state
-      state.proximity = currentProximity;
-      state.listLength = currentListLength;
+      if (!proximity && newProximity === 'INSIDE') {
+        triggerCause = 'INITIAL_POSITION';
+      } else if (proximity === 'OUTSIDE' && newProximity === 'INSIDE') {
+        triggerCause = 'MOVEMENT';
+      } else if (
+        proximity === 'INSIDE' &&
+        newProximity === 'INSIDE' &&
+        listLength !== newLength
+      ) {
+        triggerCause = 'LIST_UPDATE';
+      }
 
-      // Trigger callback if needed
+      state.proximity = newProximity;
+      state.listLength = newLength;
+
       if (triggerCause) {
-        callback({ triggerCause });
+        callback({
+          triggerCause,
+        });
       }
     });
   }

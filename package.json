@@ -12,9 +12,7 @@
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": [
-    "dist"
-  ],
+  "files": ["dist"],
   "scripts": {
     "build": "rslib build",
     "check": "biome check --write",
@@ -34,9 +32,7 @@
   "private": true,
   "packageManager": "pnpm@9.11.0",
   "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
+    "onlyBuiltDependencies": ["esbuild"]
   },
   "dependencies": {
     "lodash.debounce": "^4.0.8",

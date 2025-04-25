@@ -12,5 +12,5 @@
  * - Strings, objects, etc. (returns false)
  */
 export const isNumber = (value: unknown): value is number => {
-  return typeof value === 'number' && Number.isFinite(value);
+    return typeof value === 'number' && Number.isFinite(value);
 };

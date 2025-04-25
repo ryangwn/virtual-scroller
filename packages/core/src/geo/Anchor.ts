@@ -1,31 +1,25 @@
 import { Rectangle } from './Rectangle';
 
 export class Anchor {
-  itemId: string;
+    itemId: string;
 
-  offset: number;
+    offset: number;
 
-  visible: boolean;
+    visible: boolean;
 
-  canBeAnchor: boolean;
+    canBeAnchor: boolean;
 
-  height: number;
+    height: number;
 
-  constructor(
-    itemId: string,
-    offset = 0,
-    visible = false,
-    canBeAnchor = false,
-    height = 0,
-  ) {
-    this.itemId = itemId;
-    this.offset = offset;
-    this.visible = visible;
-    this.canBeAnchor = canBeAnchor;
-    this.height = height;
-  }
+    constructor(itemId: string, offset = 0, visible = false, canBeAnchor = false, height = 0) {
+        this.itemId = itemId;
+        this.offset = offset;
+        this.visible = visible;
+        this.canBeAnchor = canBeAnchor;
+        this.height = height;
+    }
 
-  getRectInViewport() {
-    return new Rectangle(this.offset, this.height);
-  }
+    getRectInViewport() {
+        return new Rectangle(this.offset, this.height);
+    }
 }

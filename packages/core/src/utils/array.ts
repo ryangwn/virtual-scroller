@@ -5,10 +5,10 @@
  * @returns {T | undefined} The first element or undefined
  */
 export const first = <T>(arr?: T[] | null): T | undefined => {
-  if (!arr || !Array.isArray(arr) || arr.length === 0) {
-    return undefined;
-  }
-  return arr[0];
+    if (!arr || !Array.isArray(arr) || arr.length === 0) {
+        return undefined;
+    }
+    return arr[0];
 };
 
 /**
@@ -18,10 +18,10 @@ export const first = <T>(arr?: T[] | null): T | undefined => {
  * @returns {T | undefined} The last element or undefined
  */
 export const last = <T>(arr?: T[] | null): T | undefined => {
-  if (!arr || !Array.isArray(arr) || arr.length === 0) {
-    return undefined;
-  }
-  return arr[arr.length - 1];
+    if (!arr || !Array.isArray(arr) || arr.length === 0) {
+        return undefined;
+    }
+    return arr[arr.length - 1];
 };
 
 /**
@@ -32,22 +32,19 @@ export const last = <T>(arr?: T[] | null): T | undefined => {
  * @param {(item: T, index: number) => U | undefined} fn - The mapping function
  * @returns {U[]} A new array with mapped and filtered values
  */
-export const filterMap = <T, U>(
-  arr: T[] | null | undefined,
-  fn: (item: T, index: number) => U | undefined,
-): U[] => {
-  if (!arr || !Array.isArray(arr)) {
-    return [];
-  }
-
-  const result: U[] = [];
-
-  for (let i = 0; i < arr.length; i++) {
-    const mapped = fn(arr[i], i);
-    if (mapped !== undefined) {
-      result.push(mapped);
+export const filterMap = <T, U>(arr: T[] | null | undefined, fn: (item: T, index: number) => U | undefined): U[] => {
+    if (!arr || !Array.isArray(arr)) {
+        return [];
     }
-  }
 
-  return result;
+    const result: U[] = [];
+
+    for (let i = 0; i < arr.length; i++) {
+        const mapped = fn(arr[i], i);
+        if (mapped !== undefined) {
+            result.push(mapped);
+        }
+    }
+
+    return result;
 };

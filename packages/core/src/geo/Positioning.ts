@@ -1,41 +1,41 @@
 import type { Rectangle } from './Rectangle';
 
 export type RenderedItem = {
-  id: string;
-  rectangle: Rectangle;
+    id: string;
+    rectangle: Rectangle;
 };
 
 export class Positioning {
-  viewportRect: Rectangle;
-  listRect: Rectangle;
-  listLength: number;
-  renderedItems: RenderedItem[];
-
-  constructor(data: {
-    listLength: number;
-    listRect: Rectangle;
-    renderedItems: RenderedItem[];
     viewportRect: Rectangle;
-  }) {
-    this.viewportRect = data.viewportRect;
-    this.listRect = data.listRect;
-    this.listLength = data.listLength;
-    this.renderedItems = data.renderedItems;
-  }
+    listRect: Rectangle;
+    listLength: number;
+    renderedItems: RenderedItem[];
 
-  getForList() {
-    return this.listRect;
-  }
+    constructor(data: {
+        listLength: number;
+        listRect: Rectangle;
+        renderedItems: RenderedItem[];
+        viewportRect: Rectangle;
+    }) {
+        this.viewportRect = data.viewportRect;
+        this.listRect = data.listRect;
+        this.listLength = data.listLength;
+        this.renderedItems = data.renderedItems;
+    }
 
-  getForViewport() {
-    return this.viewportRect;
-  }
+    getForList() {
+        return this.listRect;
+    }
 
-  getListLength() {
-    return this.listLength;
-  }
+    getForViewport() {
+        return this.viewportRect;
+    }
 
-  getRenderedItems() {
-    return this.renderedItems;
-  }
+    getListLength() {
+        return this.listLength;
+    }
+
+    getRenderedItems() {
+        return this.renderedItems;
+    }
 }
